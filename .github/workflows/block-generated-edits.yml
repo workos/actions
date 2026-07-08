@@ -22,14 +22,18 @@ name: Block Generated File Edits
 #   jobs:
 #     block-generated-edits:
 #       uses: workos/actions/.github/workflows/block-generated-edits.yml@main
-#       secrets: inherit
+#       secrets:
+#         SDK_BOT_PRIVATE_KEY: ${{ secrets.SDK_BOT_PRIVATE_KEY }}
 #
 # Requires (already present on SDK repos for the bot's other workflows):
 #   - vars.SDK_BOT_APP_ID
-#   - secrets.SDK_BOT_PRIVATE_KEY   (passed via `secrets: inherit`)
+#   - secrets.SDK_BOT_PRIVATE_KEY
 
 on:
   workflow_call:
+    secrets:
+      SDK_BOT_PRIVATE_KEY:
+        required: true
 
 permissions:
   contents: read
@@ -60,9 +64,14 @@ jobs:
         with:
           app-id: ${{ vars.SDK_BOT_APP_ID }}
           private-key: ${{ secrets.SDK_BOT_PRIVATE_KEY }}
-          # Org-wide token: the job clones both the caller SDK and this
-          # (workos/actions) repo, so it must reach more than the caller alone.
+          # The job clones both the caller SDK and this repo. Keep the token
+          # limited to those repositories and the permissions used below.
           owner: workos
+          repositories: |
+            ${{ github.event.repository.name }}
+            actions
+          permission-contents: read
+          permission-pull-requests: write
 
       # pull_request_target checks out the trusted base branch of the *caller*
       # SDK repo (the head of the PR is never executed). We need full history
@@ -73,6 +82,7 @@ jobs:
           ref: ${{ github.event.pull_request.base.sha }}
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
+          persist-credentials: false
 
       # The detector script lives in this repo, not the SDK. Pull just that
       # file, at the exact commit of the reusable workflow being run
