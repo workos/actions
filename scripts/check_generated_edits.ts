@@ -181,6 +181,9 @@ function hasUnfencedChange(
   let oldLn = 0;
   let newLn = 0;
   let inHunk = false;
+  // `--unified=0` emits no context lines, so inside a hunk every line is a `+`
+  // or `-` content line (or a "\ No newline" marker). That is why there is no
+  // context-line branch below advancing both counters together.
   for (const line of splitLines(diff.stdout)) {
     if (line.startsWith("@@")) {
       const match = HUNK_RE.exec(line);
