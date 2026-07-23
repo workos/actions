@@ -187,11 +187,17 @@ function hasUnfencedChange(
   for (const line of splitLines(diff.stdout)) {
     if (line.startsWith("@@")) {
       const match = HUNK_RE.exec(line);
-      if (match) {
-        oldLn = Number(match[1]);
-        newLn = Number(match[3]);
-        inHunk = true;
+      if (!match) {
+        // A `@@`-prefixed line that we can't parse means the diff isn't in the
+        // shape the counters below assume. Fail loudly rather than silently
+        // leaving `inHunk` false — that would skip the whole hunk's content and
+        // let an unfenced edit through (fail-open). This guard is a tripwire, so
+        // an unexpected diff shape must fail closed.
+        throw new Error(`unparseable hunk header in ${path}: ${line}`);
       }
+      oldLn = Number(match[1]);
+      newLn = Number(match[3]);
+      inHunk = true;
       continue;
     }
     // Everything before the first hunk is diff/file-header noise (`diff --git`,
