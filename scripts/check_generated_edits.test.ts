@@ -3,12 +3,16 @@
  *
  * Each test builds a throwaway git repository, commits a base and a head
  * state, and runs the real detector CLI against the two commits — the same
- * way the block-generated-edits workflow drives it. GIT_CONFIG_GLOBAL and
- * GIT_CONFIG_SYSTEM are pointed at /dev/null so the developer's own git
- * config (signing, quotePath, diff drivers) can't affect the outcome.
+ * way the block-generated-edits workflow drives it. Driving the real script
+ * through real `git diff` output is the point: the bypasses this guards
+ * against live in how `--unified=0` diffs render, so a unit test that stubbed
+ * the diff would test the wrong thing.
  *
- * Run with:
- *     node --test scripts/check_generated_edits.test.ts
+ * GIT_CONFIG_GLOBAL and GIT_CONFIG_SYSTEM are pointed at /dev/null so the
+ * developer's own git config (signing, quotePath, diff drivers) can't affect
+ * the outcome.
+ *
+ * Run with: npm test
  */
 
 import assert from "node:assert/strict";
@@ -118,7 +122,11 @@ function offendersFor(
 test("flags a NUL-smuggled rewrite of a generated file (SEC-1586)", (t) => {
   // A NUL byte in the head blob makes git classify the diff as binary; the
   // guard must still see the rewrite as an unfenced change.
-  const head = Buffer.from("// evil\u0000\nbackdoor();\n", "utf8");
+  const head = Buffer.concat([
+    Buffer.from("// evil", "utf8"),
+    Buffer.from([0]),
+    Buffer.from("\nbackdoor();\n", "utf8"),
+  ]);
   assert.deepEqual(offendersFor(t, GENERATED, head), ["gen.ts"]);
 });
 
@@ -200,6 +208,19 @@ test("flags a moved fence even when the fence count is unchanged", (t) => {
   assert.deepEqual(offendersFor(t, GENERATED, head), ["gen.ts"]);
 });
 
+test("flags removing a pre-existing fence marker (symmetric guard)", (t) => {
+  const head = [
+    `// ${MARKER}`,
+    "export function add(a: number, b: number): number {",
+    "  return a + b;",
+    "}",
+    "export const custom = 1;",
+    "export const tail = 2;",
+    "",
+  ].join("\n");
+  assert.deepEqual(offendersFor(t, GENERATED, head), ["gen.ts"]);
+});
+
 test("flags hand edits to a fence marker line", (t) => {
   const head = GENERATED.replace(
     "// @oagen-ignore-end",
@@ -247,6 +268,29 @@ test("flags added content lines that start with ++", (t) => {
   const head = GENERATED.replace(
     "export const tail = 2;",
     "export const tail = 2;\n++counter;",
+  );
+  assert.deepEqual(offendersFor(t, GENERATED, head), ["gen.ts"]);
+});
+
+test("allows a ++-prefixed content line added inside a pre-existing fence", (t) => {
+  const head = GENERATED.replace(
+    "export const custom = 1;",
+    "export const custom = 1;\n++i;",
+  );
+  assert.deepEqual(offendersFor(t, GENERATED, head), []);
+});
+
+test("flags fence markers smuggled via a ++-prefixed content line", (t) => {
+  // "++@oagen-ignore-start" renders as "+++@oagen-ignore-start"; a prefix
+  // header test used to drop it while fenceRanges still honored it as a fence.
+  const head = GENERATED.replace(
+    "export const tail = 2;",
+    [
+      "++@oagen-ignore-start",
+      "backdoor();",
+      "++@oagen-ignore-end",
+      "export const tail = 2;",
+    ].join("\n"),
   );
   assert.deepEqual(offendersFor(t, GENERATED, head), ["gen.ts"]);
 });

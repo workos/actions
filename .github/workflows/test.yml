@@ -29,4 +29,4 @@ jobs:
           node-version: '24'
 
       - name: Run tests
-        run: node --test scripts/check_generated_edits.test.ts
+        run: npm test

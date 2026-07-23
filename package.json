@@ -1,0 +1,10 @@
+{
+  "name": "@workos/actions-generated-edits-guard",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Detector that blocks hand edits to oagen-generated files in a PR diff.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test \"scripts/**/*.test.ts\""
+  }
+}
