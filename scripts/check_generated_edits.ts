@@ -154,6 +154,11 @@ function hasUnfencedChange(
     "diff",
     "--unified=0",
     "--no-renames",
+    // Force a textual diff even for content git would treat as binary (e.g. a
+    // file with an embedded NUL byte). Without this, git emits a "Binary files
+    // … differ" summary with no +/- lines, the loop below finds no changes,
+    // and an arbitrary rewrite would slip through as "no unfenced change".
+    "--text",
     baseRef,
     headRef,
     "--",
@@ -167,6 +172,12 @@ function hasUnfencedChange(
   let oldLn = 0;
   let newLn = 0;
   for (const line of splitLines(diff.stdout)) {
+    if (line.startsWith("Binary files ")) {
+      // Safety net: with "--text" above git should always emit a textual diff,
+      // but if a binary summary ever reaches us the +/- lines are absent, so
+      // fail safe by treating the change as an unfenced offense.
+      return true;
+    }
     if (line.startsWith("@@")) {
       const match = HUNK_RE.exec(line);
       if (match) {
