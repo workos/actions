@@ -27,6 +27,7 @@ async function run(
     ordinary?: boolean;
     pr?: Record<string, unknown>;
     checks?: unknown[];
+    checkSequence?: unknown[][];
     head?: string;
     relation?: string;
     apiFailure?: boolean;
@@ -35,6 +36,7 @@ async function run(
 ) {
   let exit: number | undefined;
   let now = 0;
+  let poll = 0;
   const logs: string[] = [];
   const requests: string[] = [];
   const exitSignal = new Error("exit");
@@ -71,8 +73,8 @@ async function run(
       error: (text: string) => logs.push(text),
     },
     Date: { now: () => now },
-    setTimeout: (fn: () => void) => {
-      now = 171 * 60 * 1000;
+    setTimeout: (fn: () => void, delay: number) => {
+      now += delay;
       fn();
     },
     AbortSignal,
@@ -81,7 +83,7 @@ async function run(
       assert.equal(url.startsWith(`https://api.github.com/repos/${repo}/`), true);
       if (options.apiFailure) return new Response("unavailable", { status: 503 });
       if (url.includes("check-runs"))
-        return Response.json({ check_runs: options.checks ?? [check] });
+        return Response.json({ check_runs: options.checkSequence?.[poll++] ?? options.checks ?? [check] });
       if (url.includes("/pulls/"))
         return Response.json({
           ...release,
@@ -110,6 +112,15 @@ describe("release merge workflow executable contract", () => {
   });
   it("allows a fresh release with a successful check from the configured App", async () => {
     assert.equal((await run()).exit, 0);
+  });
+  it("passes after missing, waiting, and failed checks recover on later polls", async () => {
+    const result = await run({ checkSequence: [
+      [], [{ ...check, status: "in_progress", conclusion: null }],
+      [{ ...check, conclusion: "failure" }], [check],
+    ] });
+    assert.equal(result.exit, 0);
+    assert.equal(result.requests.filter(url => url.includes("check-runs")).length, 4);
+    assert.ok(result.logs.includes("https://prodsec-ai.workos.tools/activity/releases"));
   });
   it("applies to a release authored by the generic Actions bot", async () => {
     const pr = { ...release, user: { login: "github-actions[bot]", type: "Bot" } };
