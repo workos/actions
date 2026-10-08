@@ -47,13 +47,13 @@ jobs:
           (async () => {
             const deadline = Date.now() + 170 * 60 * 1000;
             while (Date.now() < deadline) {
+              const current = await get(`/pulls/${pr.number}`);
+              if (current.state !== 'open' || current.head.sha !== pr.head.sha || current.base.ref !== pr.base.ref)
+                throw new Error('Pull request changed; a new evaluation is required.');
               const checks = await get(`/commits/${pr.head.sha}/check-runs?check_name=Release%20readiness&filter=all&per_page=100`);
               const newest = checks.check_runs.filter(c => c.app?.id === appId && c.head_sha === pr.head.sha)
                 .sort((a, b) => b.id - a.id)[0];
               if (newest?.status === 'completed' && newest.conclusion === 'success') {
-                const current = await get(`/pulls/${pr.number}`);
-                if (current.state !== 'open' || current.head.sha !== pr.head.sha || current.base.ref !== pr.base.ref)
-                  throw new Error('Pull request changed; a new evaluation is required.');
                 const base = await get(`/git/ref/heads/${encodeURIComponent(pr.base.ref)}`);
                 const relation = await get(`/compare/${base.object.sha}...${pr.head.sha}`);
                 if (!['ahead', 'identical'].includes(relation.status)) throw new Error('Update the release branch before merging.');

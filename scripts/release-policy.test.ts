@@ -29,6 +29,7 @@ async function run(
     checks?: unknown[];
     checkSequence?: unknown[][];
     head?: string;
+    state?: string;
     relation?: string;
     apiFailure?: boolean;
     appId?: string;
@@ -87,6 +88,7 @@ async function run(
       if (url.includes("/pulls/"))
         return Response.json({
           ...release,
+          state: options.state ?? "open",
           head: { ...release.head, sha: options.head ?? "head" },
         });
       if (url.includes("/git/ref/")) return Response.json({ object: { sha: "base" } });
@@ -152,6 +154,14 @@ describe("release merge workflow executable contract", () => {
   it("rejects a changed release head", async () => {
     assert.ok(((await run({ head: "changed" })).logs).includes("Pull request changed"));
   });
+  for (const change of [{ head: "changed" }, { state: "closed" }]) {
+    it(`stops an obsolete release before waiting for coverage: ${JSON.stringify(change)}`, async () => {
+      const result = await run({ ...change, checks: [] });
+      assert.equal(result.exit, 1);
+      assert.ok(result.logs.includes("Pull request changed"));
+      assert.equal(result.requests.filter(url => url.includes("check-runs")).length, 0);
+    });
+  }
   it("rejects a release behind the current base", async () => {
     assert.ok(((await run({ relation: "diverged" })).logs).includes("Update the release branch"));
   });
