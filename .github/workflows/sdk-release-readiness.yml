@@ -9,6 +9,8 @@ permissions:
 jobs:
   release-policy:
     name: Release policy
+    # GitHub requires an explicit condition for cross-repository ruleset runs.
+    if: true
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps:
