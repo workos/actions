@@ -1,0 +1,70 @@
+# Pin this workflow in an organization ruleset for SDK default branches.
+name: SDK release policy
+on:
+  pull_request:
+permissions:
+  contents: read
+  pull-requests: read
+  checks: read
+jobs:
+  release-policy:
+    name: Release policy
+    # GitHub requires an explicit condition for cross-repository ruleset runs.
+    if: true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Check release readiness
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_CHECK_APP_ID: '4358390' # WorkOS Prodsec AI Checks App
+        # No checkout or execution of code from the pull request.
+        run: |
+          node <<'JS'
+          const fs = require('node:fs');
+          const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
+          const pr = event.pull_request;
+          const repo = event.repository.full_name;
+          // Mirror the worker's isReleasePr: allowlisted release-bot author,
+          // same-repo head, release-please branch prefix. Some SDK repos run
+          // release-please on the default workflow token, so the author is
+          // the generic Actions bot there.
+          const releaseBots = ['workos-sdk-automation[bot]', 'github-actions[bot]'];
+          const release = releaseBots.includes(pr.user.login) &&
+            pr.user.type === 'Bot' && pr.head.repo?.full_name === repo &&
+            (pr.head.ref ?? '').startsWith('release-please--');
+          if (!release) { console.log('Release policy does not apply to this pull request.'); process.exit(0); }
+          const appId = Number(process.env.RELEASE_CHECK_APP_ID);
+          if (!Number.isSafeInteger(appId) || appId <= 0) throw new Error('Release check App identity is not configured.');
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+            'WorkOS engineers can [check progress or allow this release](https://prodsec-ai.workos.tools/activity/releases).\n');
+          const get = async suffix => {
+            const response = await fetch(`https://api.github.com/repos/${repo}${suffix}`, {
+              headers: { Authorization: `Bearer ${process.env.GH_TOKEN}`, Accept: 'application/vnd.github+json' },
+              signal: AbortSignal.timeout(30000),
+            });
+            if (!response.ok) throw new Error(`Release policy read failed: HTTP ${response.status}`);
+            return response.json();
+          };
+          (async () => {
+            const deadline = Date.now() + 170 * 60 * 1000;
+            while (Date.now() < deadline) {
+              const current = await get(`/pulls/${pr.number}`);
+              if (current.state !== 'open' || current.head.sha !== pr.head.sha || current.base.ref !== pr.base.ref)
+                throw new Error('Pull request changed; a new evaluation is required.');
+              const checks = await get(`/commits/${pr.head.sha}/check-runs?check_name=Release%20readiness&filter=all&per_page=100`);
+              const newest = checks.check_runs.filter(c => c.app?.id === appId && c.head_sha === pr.head.sha)
+                .sort((a, b) => b.id - a.id)[0];
+              if (newest?.status === 'completed' && newest.conclusion === 'success') {
+                const base = await get(`/git/ref/heads/${encodeURIComponent(pr.base.ref)}`);
+                const relation = await get(`/compare/${base.object.sha}...${pr.head.sha}`);
+                if (!['ahead', 'identical'].includes(relation.status)) throw new Error('Update the release branch before merging.');
+                console.log('Release readiness passed for this revision.');
+                return;
+              }
+              // Keep waiting through a recoverable failure or an explicit waiver.
+              await new Promise(resolve => setTimeout(resolve, 30000));
+            }
+            throw new Error('Release readiness has not passed; retry after the internal release review completes.');
+          })().catch(error => { console.error(error.message); process.exit(1); });
+          JS

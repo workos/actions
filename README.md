@@ -31,3 +31,9 @@ jobs:
     uses: workos/actions/.github/workflows/block-generated-edits.yml@main
     secrets: inherit
 ```
+
+### `sdk-release-readiness.yml`
+
+Use this workflow in an organization ruleset to require scan coverage before SDK release PRs merge. Pin the workflow to a reviewed commit. The `Release policy` job runs on every PR targeting the selected default branches. Ordinary PRs pass immediately; release-please PRs wait for `Release readiness`, the check posted by the WorkOS Prodsec AI service on their current revision. The workflow never checks out or executes pull-request code.
+
+The run summary links WorkOS engineers to the internal Releases page to check progress or allow a release for its reviewed revisions. Require the `Release policy` status with up-to-date branches and leave the ruleset bypass list empty so release automation follows the same rule. The status rule supplies merge-time branch freshness; the required workflow supplies the trusted program. Start in Evaluate mode to observe results without blocking merges.
